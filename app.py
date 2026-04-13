@@ -23,7 +23,7 @@ products = {
 # 👤 User State
 user_state = {}
 
-# 📊 Google Sheets Setup
+# 📊 Google Sheets Save Function (FIXED)
 def save_to_sheet(data):
     try:
         import gspread
@@ -36,14 +36,16 @@ def save_to_sheet(data):
             "https://spreadsheets.google.com/feeds",
             "https://www.googleapis.com/auth/drive"
         ]
+
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
 
-        sheet = client.open("19rCrD3KnpL9yqP9WioohMSi173NZQ1i1i7RAdj2arTs").sheet1
+        sheet = client.open_by_key("19rCrD3KnpL9yqP9WioohMSi173NZQ1i1i7RAdj2arTs").sheet1
         sheet.append_row(data)
 
     except Exception as e:
         print("Sheet error:", e)
+
 
 @app.route("/")
 def home():
@@ -55,7 +57,6 @@ def webhook():
     incoming_msg = request.values.get('Body', '').strip().lower()
     user_number = request.values.get('From')
 
-    # ✅ Clean phone number
     phone = user_number.replace("whatsapp:", "")
 
     resp = MessagingResponse()
@@ -67,10 +68,12 @@ def webhook():
 
     state = user_state[phone]
 
-    # ❌ CANCEL LOGIC (FIXED)
+    print("STEP:", state["step"], "MSG:", incoming_msg)
+
+    # ❌ CANCEL
     if incoming_msg in ["cancel", "stop", "exit"]:
         if state["step"] is None:
-            msg.body("Your order is already placed ✅\nPlease contact these number xxxxxxxxxx to get more support.")
+            msg.body("No active order to cancel.")
         else:
             user_state[phone] = {"step": None, "product": None}
             msg.body("Order cancelled ❌\nYou can start again anytime.")
@@ -89,16 +92,20 @@ def webhook():
         if state["product"]:
             state["step"] = "ask_size"
             msg.body(
-                f"{state['product'].title()} is available. Which size do you want? ({', '.join(products[state['product']]['sizes'])})")
+                f"{state['product'].title()} is available. Which size do you want? ({', '.join(products[state['product']]['sizes'])})"
+            )
         else:
             msg.body("Please mention the product name.")
         return str(resp)
 
     # 📏 Ask size
     if state["step"] == "ask_size":
-        state["size"] = incoming_msg.upper()
-        state["step"] = "ask_address"
-        msg.body("Please share your name and address (Example: xxxxxx, xxxxxxxxxxx-000000)")
+        if incoming_msg.upper() in products[state["product"]]["sizes"]:
+            state["size"] = incoming_msg.upper()
+            state["step"] = "ask_address"
+            msg.body("Please share your name and address (Example: Name, Address-000000)")
+        else:
+            msg.body("Invalid size. Please enter correct size.")
         return str(resp)
 
     # 📦 Confirm order + Save to Google Sheets
@@ -116,8 +123,8 @@ def webhook():
         date = now.strftime("%Y-%m-%d")
         time = now.strftime("%H:%M:%S")
 
-        # Save order
-        sheet.append_row([
+        # ✅ FIX: Use function instead of undefined sheet
+        save_to_sheet([
             name,
             phone,
             state["product"],
@@ -144,17 +151,23 @@ def webhook():
 
         if "price" in incoming_msg:
             msg.body(
-                f"{found_product.title()} price is {product_data['price']}. Available sizes: {', '.join(product_data['sizes'])}. Want to order?")
+                f"{found_product.title()} price is {product_data['price']}. Available sizes: {', '.join(product_data['sizes'])}. Want to order?"
+            )
 
         elif "size" in incoming_msg:
-            msg.body(f"{found_product.title()} sizes: {', '.join(product_data['sizes'])}. Which size do you want?")
+            msg.body(
+                f"{found_product.title()} sizes: {', '.join(product_data['sizes'])}. Which size do you want?"
+            )
 
         elif "delivery" in incoming_msg:
-            msg.body(f"{found_product.title()} delivery time: {product_data['delivery']}. Want to order?")
+            msg.body(
+                f"{found_product.title()} delivery time: {product_data['delivery']}. Want to order?"
+            )
 
         else:
             msg.body(
-                f"{found_product.title()} costs {product_data['price']} and is available in {', '.join(product_data['sizes'])}. Want to order?")
+                f"{found_product.title()} costs {product_data['price']} and is available in {', '.join(product_data['sizes'])}. Want to order?"
+            )
 
     else:
         msg.body("Please mention product like 'black shirt' or 'white tshirt'.")
@@ -162,4 +175,5 @@ def webhook():
     return str(resp)
 
 
-app.run(host="0.0.0.0", port=5000)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
