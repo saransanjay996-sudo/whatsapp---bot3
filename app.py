@@ -26,15 +26,23 @@ user_state = {}
 # 📊 Save to Google Sheet
 def save_to_sheet(data):
     try:
+        print("🚀 ENTERED save_to_sheet")
+
         import gspread
         from oauth2client.service_account import ServiceAccountCredentials
+        import json
+        import os
 
         creds_json = os.environ.get("GOOGLE_CREDS")
+
+        print("🔑 CREDS RAW:", creds_json[:50] if creds_json else "None")
+
         if not creds_json:
             print("❌ GOOGLE_CREDS missing")
             return
 
         creds_dict = json.loads(creds_json)
+        print("✅ JSON LOADED")
 
         scope = [
             "https://spreadsheets.google.com/feeds",
@@ -42,15 +50,22 @@ def save_to_sheet(data):
         ]
 
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        print("✅ CREDS OBJECT CREATED")
+
         client = gspread.authorize(creds)
+        print("✅ CLIENT AUTHORIZED")
 
         sheet = client.open_by_key("19rCrD3KnpL9yqP9WioohMSi173NZQ1i1i7RAdj2arTs").sheet1
-        sheet.append_row(data)
+        print("✅ SHEET OPENED")
 
-        print("✅ SAVED:", data)
+        sheet.append_row(data)
+        print("🔥 DATA SUCCESSFULLY SAVED:", data)
 
     except Exception as e:
-        print("❌ SHEET ERROR:", str(e))
+        import traceback
+        print("❌ FULL ERROR BELOW:")
+        print(traceback.format_exc())
+
 
 
 @app.route("/")
