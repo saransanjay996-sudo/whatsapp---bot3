@@ -28,8 +28,16 @@ def save_to_sheet(data):
     try:
         import gspread
         from oauth2client.service_account import ServiceAccountCredentials
+        import json
+        import os
 
         creds_json = os.environ.get("GOOGLE_CREDS")
+        print("CREDS FOUND:", bool(creds_json))
+
+        if not creds_json:
+            print("❌ ERROR: GOOGLE_CREDS not found")
+            return
+
         creds_dict = json.loads(creds_json)
 
         scope = [
@@ -41,10 +49,13 @@ def save_to_sheet(data):
         client = gspread.authorize(creds)
 
         sheet = client.open_by_key("19rCrD3KnpL9yqP9WioohMSi173NZQ1i1i7RAdj2arTs").sheet1
+
         sheet.append_row(data)
 
+        print("✅ DATA SAVED:", data)
+
     except Exception as e:
-        print("Sheet error:", e)
+        print("❌ FULL ERROR:", str(e))
 
 
 @app.route("/")
