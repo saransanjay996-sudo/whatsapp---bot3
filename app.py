@@ -1,8 +1,8 @@
 from flask import Flask, request
 from twilio.twiml.messaging_response import MessagingResponse
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
+import os
+import json
 
 app = Flask(__name__)
 
@@ -24,14 +24,26 @@ products = {
 user_state = {}
 
 # 📊 Google Sheets Setup
-scope = ["https://spreadsheets.google.com/feeds",
-         "https://www.googleapis.com/auth/drive"]
+def save_to_sheet(data):
+    try:
+        import gspread
+        from oauth2client.service_account import ServiceAccountCredentials
 
-creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
-client = gspread.authorize(creds)
+        creds_json = os.environ.get("GOOGLE_CREDS")
+        creds_dict = json.loads(creds_json)
 
-sheet = client.open_by_key("19rCrD3KnpL9yqP9WioohMSi173NZQ1i1i7RAdj2arTs").sheet1  # 🔁 replace this
+        scope = [
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        client = gspread.authorize(creds)
 
+        sheet = client.open("19rCrD3KnpL9yqP9WioohMSi173NZQ1i1i7RAdj2arTs").sheet1
+        sheet.append_row(data)
+
+    except Exception as e:
+        print("Sheet error:", e)
 
 @app.route("/")
 def home():
