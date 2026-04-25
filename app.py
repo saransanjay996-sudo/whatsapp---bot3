@@ -73,6 +73,24 @@ init_db()
 def home():
     return "Bot is running"
 
+# 📦 VIEW ORDERS (NEW FEATURE)
+@app.route("/orders", methods=["GET"])
+def view_orders():
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute("SELECT * FROM orders ORDER BY id DESC")
+    rows = cur.fetchall()
+
+    cur.close()
+    conn.close()
+
+    result = ""
+    for row in rows:
+        result += f"{row}\n\n"
+
+    return result if result else "No orders yet"
+
 @app.route("/webhook", methods=['POST'])
 def webhook():
     incoming_msg = request.values.get('Body', '').strip().lower()
