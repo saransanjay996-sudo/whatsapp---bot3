@@ -2,7 +2,7 @@ from flask import Flask, request
 from twilio.twiml.messaging_response import MessagingResponse
 from datetime import datetime
 import os
-import json
+import psycopg2
 
 app = Flask(__name__)
 
@@ -23,55 +23,55 @@ products = {
 # 👤 User State
 user_state = {}
 
-# 📊 Save to Google Sheet
-def save_to_sheet(data):
-    try:
-        print("🚀 ENTERED save_to_sheet")
+# 🗄️ DATABASE CONNECTION
+def get_db_connection():
+    return psycopg2.connect(os.environ.get("DATABASE_URL"), sslmode='require')
 
-        import gspread
-        from oauth2client.service_account import ServiceAccountCredentials
-        import json
-        import os
+# 🧱 CREATE TABLE
+def init_db():
+    conn = get_db_connection()
+    cur = conn.cursor()
 
-        creds_json = os.environ.get("GOOGLE_CREDS")
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS orders (
+        id SERIAL PRIMARY KEY,
+        name TEXT,
+        phone TEXT,
+        product TEXT,
+        size TEXT,
+        address TEXT,
+        date TEXT,
+        time TEXT,
+        delivery TEXT
+    )
+    """)
 
-        print("🔑 CREDS RAW:", creds_json[:50] if creds_json else "None")
+    conn.commit()
+    cur.close()
+    conn.close()
 
-        if not creds_json:
-            print("❌ GOOGLE_CREDS missing")
-            return
+# 💾 SAVE ORDER
+def save_to_db(data):
+    conn = get_db_connection()
+    cur = conn.cursor()
 
-        creds_dict = json.loads(creds_json)
-        print("✅ JSON LOADED")
+    cur.execute("""
+    INSERT INTO orders (name, phone, product, size, address, date, time, delivery)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+    """, data)
 
-        scope = [
-            "https://spreadsheets.google.com/feeds",
-            "https://www.googleapis.com/auth/drive"
-        ]
+    conn.commit()
+    cur.close()
+    conn.close()
 
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        print("✅ CREDS OBJECT CREATED")
+    print("✅ SAVED TO POSTGRES:", data)
 
-        client = gspread.authorize(creds)
-        print("✅ CLIENT AUTHORIZED")
-
-        sheet = client.open_by_key("19rCrD3KnpL9yqP9WioohMSi173NZQ1i1i7RAdj2arTs").sheet1
-        print("✅ SHEET OPENED")
-
-        sheet.append_row(data)
-        print("🔥 DATA SUCCESSFULLY SAVED:", data)
-
-    except Exception as e:
-        import traceback
-        print("❌ FULL ERROR BELOW:")
-        print(traceback.format_exc())
-
-
+# Initialize DB
+init_db()
 
 @app.route("/")
 def home():
     return "Bot is running"
-
 
 @app.route("/webhook", methods=['POST'])
 def webhook():
@@ -103,7 +103,7 @@ def webhook():
             found_product = product
             break
 
-    # 💡 Q&A MODE (if not in order flow)
+    # 💡 Q&A MODE
     if state["step"] is None and found_product:
         p = products[found_product]
 
@@ -120,7 +120,6 @@ def webhook():
             return str(resp)
 
         else:
-            # Start order automatically
             state["product"] = found_product
             state["step"] = "ask_size"
 
@@ -135,7 +134,7 @@ def webhook():
             state["size"] = incoming_msg.upper()
             state["step"] = "ask_address"
 
-            msg.body("Send your name and address\nExample: xxxxxxx, xxxxxxxxxx - 000000")
+            msg.body("Send your name and address\nExample: Sanjay, Chennai-600001")
         else:
             msg.body("Invalid size. Enter correct size (M, L, XL)")
         return str(resp)
@@ -153,7 +152,7 @@ def webhook():
 
         now = datetime.now()
 
-        save_to_sheet([
+        save_to_db([
             name,
             phone,
             state["product"],
