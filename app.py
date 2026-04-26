@@ -23,74 +23,102 @@ products = {
 # 👤 User State
 user_state = {}
 
-# 🗄️ DATABASE CONNECTION
+# 🗄️ DB CONNECTION
 def get_db_connection():
+    print("🔗 Connecting to DB...")
     return psycopg2.connect(os.environ.get("DATABASE_URL"), sslmode='require')
 
-# 🧱 CREATE TABLE
+# 🧱 INIT TABLE
 def init_db():
-    conn = get_db_connection()
-    cur = conn.cursor()
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
 
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS orders (
-        id SERIAL PRIMARY KEY,
-        name TEXT,
-        phone TEXT,
-        product TEXT,
-        size TEXT,
-        address TEXT,
-        date TEXT,
-        time TEXT,
-        delivery TEXT
-    )
-    """)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS orders (
+            id SERIAL PRIMARY KEY,
+            name TEXT,
+            phone TEXT,
+            product TEXT,
+            size TEXT,
+            address TEXT,
+            date TEXT,
+            time TEXT,
+            delivery TEXT
+        )
+        """)
 
-    conn.commit()
-    cur.close()
-    conn.close()
+        conn.commit()
+        cur.close()
+        conn.close()
 
-# 💾 SAVE ORDER
+        print("✅ TABLE READY")
+
+    except Exception as e:
+        import traceback
+        print("❌ INIT ERROR:")
+        print(traceback.format_exc())
+
+# 💾 SAVE DATA
 def save_to_db(data):
-    conn = get_db_connection()
-    cur = conn.cursor()
+    try:
+        print("🔥 BEFORE SAVE")
+        conn = get_db_connection()
+        print("✅ CONNECTED")
 
-    cur.execute("""
-    INSERT INTO orders (name, phone, product, size, address, date, time, delivery)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-    """, data)
+        cur = conn.cursor()
 
-    conn.commit()
-    cur.close()
-    conn.close()
+        cur.execute("""
+        INSERT INTO orders (name, phone, product, size, address, date, time, delivery)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """, data)
 
-    print("✅ SAVED TO POSTGRES:", data)
+        conn.commit()
+        cur.close()
+        conn.close()
 
-# Initialize DB
-init_db()
+        print("✅ SAVED:", data)
 
+    except Exception as e:
+        import traceback
+        print("❌ SAVE ERROR:")
+        print(traceback.format_exc())
+
+# 🔧 FORCE INIT ROUTE
+@app.route("/initdb")
+def force_init():
+    init_db()
+    return "DB Initialized ✅"
+
+# 🏠 HOME
 @app.route("/")
 def home():
     return "Bot is running"
 
-# 📦 VIEW ORDERS (NEW FEATURE)
-@app.route("/orders", methods=["GET"])
+# 📦 VIEW ORDERS
+@app.route("/orders")
 def view_orders():
-    conn = get_db_connection()
-    cur = conn.cursor()
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
 
-    cur.execute("SELECT * FROM orders ORDER BY id DESC")
-    rows = cur.fetchall()
+        cur.execute("SELECT * FROM orders ORDER BY id DESC")
+        rows = cur.fetchall()
 
-    cur.close()
-    conn.close()
+        cur.close()
+        conn.close()
 
-    result = ""
-    for row in rows:
-        result += f"{row}\n\n"
+        result = ""
+        for row in rows:
+            result += f"{row}\n\n"
 
-    return result if result else "No orders yet"
+        return result if result else "No orders yet"
 
+    except Exception as e:
+        import traceback
+        return traceback.format_exc()
+
+# 🤖 WHATSAPP BOT
 @app.route("/webhook", methods=['POST'])
 def webhook():
     incoming_msg = request.values.get('Body', '').strip().lower()
@@ -100,7 +128,6 @@ def webhook():
     resp = MessagingResponse()
     msg = resp.message()
 
-    # Initialize state
     if phone not in user_state:
         user_state[phone] = {"step": None, "product": None, "size": None}
 
@@ -111,7 +138,7 @@ def webhook():
     # ❌ CANCEL
     if incoming_msg in ["cancel", "stop", "exit"]:
         user_state[phone] = {"step": None, "product": None, "size": None}
-        msg.body("Order cancelled ❌\nStart again anytime.")
+        msg.body("Order cancelled ❌")
         return str(resp)
 
     # 🔍 Detect product
@@ -121,52 +148,44 @@ def webhook():
             found_product = product
             break
 
-    # 💡 Q&A MODE
+    # 💡 Q&A
     if state["step"] is None and found_product:
         p = products[found_product]
 
         if "price" in incoming_msg:
-            msg.body(f"{found_product.title()} price is {p['price']}. Want to order?")
+            msg.body(f"{found_product} price is {p['price']}")
             return str(resp)
 
         elif "size" in incoming_msg:
-            msg.body(f"{found_product.title()} sizes: {', '.join(p['sizes'])}.")
+            msg.body(f"Sizes: {', '.join(p['sizes'])}")
             return str(resp)
 
         elif "delivery" in incoming_msg:
-            msg.body(f"{found_product.title()} delivery time: {p['delivery']}.")
+            msg.body(f"Delivery: {p['delivery']}")
             return str(resp)
 
         else:
             state["product"] = found_product
             state["step"] = "ask_size"
-
-            msg.body(
-                f"{found_product.title()} is available.\nSizes: {', '.join(p['sizes'])}\nEnter size:"
-            )
+            msg.body(f"Available sizes: {', '.join(p['sizes'])}")
             return str(resp)
 
-    # 🟢 STEP 1 → SIZE
-    if state.get("step") == "ask_size" and state.get("product"):
+    # SIZE
+    if state["step"] == "ask_size":
         if incoming_msg.upper() in products[state["product"]]["sizes"]:
             state["size"] = incoming_msg.upper()
             state["step"] = "ask_address"
-
-            msg.body("Send your name and address\nExample: Sanjay, Chennai-600001")
+            msg.body("Send name and address (Name, Address)")
         else:
-            msg.body("Invalid size. Enter correct size (M, L, XL)")
+            msg.body("Invalid size")
         return str(resp)
 
-    # 🟢 STEP 2 → ADDRESS → SAVE
-    if state.get("step") == "ask_address" and state.get("product") and state.get("size"):
+    # ADDRESS → SAVE
+    if state["step"] == "ask_address":
         parts = incoming_msg.split(",", 1)
 
-        if len(parts) == 2:
-            name = parts[0].strip()
-            address = parts[1].strip()
-        else:
-            name = incoming_msg
-            address = ""
+        name = parts[0].strip()
+        address = parts[1].strip() if len(parts) > 1 else ""
 
         now = datetime.now()
 
@@ -181,18 +200,12 @@ def webhook():
             products[state["product"]]["delivery"]
         ])
 
-        msg.body(
-            f"Order Confirmed ✅\n"
-            f"Product: {state['product'].title()}\n"
-            f"Size: {state['size']}\n"
-            f"Delivery: {products[state['product']]['delivery']}"
-        )
+        msg.body("Order Confirmed ✅")
 
         user_state[phone] = {"step": None, "product": None, "size": None}
         return str(resp)
 
-    # Default fallback
-    msg.body("Send product name like 'black shirt' to start.")
+    msg.body("Send product like 'black shirt'")
     return str(resp)
 
 
