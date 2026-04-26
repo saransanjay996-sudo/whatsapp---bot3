@@ -6,7 +6,7 @@ import psycopg2
 
 app = Flask(__name__)
 
-# 🛍️ Product Database
+# 🛍️ Products
 products = {
     "black shirt": {
         "price": "₹999",
@@ -20,52 +20,43 @@ products = {
     }
 }
 
-# 👤 User State
+# 👤 State
 user_state = {}
 
-# 🗄️ DB CONNECTION
+# 🔗 DB Connection
 def get_db_connection():
-    print("🔗 Connecting to DB...")
     return psycopg2.connect(os.environ.get("DATABASE_URL"), sslmode='require')
 
-# 🧱 INIT TABLE
+# 🧱 Create table
 def init_db():
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
+    conn = get_db_connection()
+    cur = conn.cursor()
 
-        cur.execute("""
-        CREATE TABLE IF NOT EXISTS orders (
-            id SERIAL PRIMARY KEY,
-            name TEXT,
-            phone TEXT,
-            product TEXT,
-            size TEXT,
-            address TEXT,
-            date TEXT,
-            time TEXT,
-            delivery TEXT
-        )
-        """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS orders (
+        id SERIAL PRIMARY KEY,
+        name TEXT,
+        phone TEXT,
+        product TEXT,
+        size TEXT,
+        address TEXT,
+        date TEXT,
+        time TEXT,
+        delivery TEXT
+    )
+    """)
 
-        conn.commit()
-        cur.close()
-        conn.close()
+    conn.commit()
+    cur.close()
+    conn.close()
+    print("✅ TABLE READY")
 
-        print("✅ TABLE READY")
-
-    except Exception as e:
-        import traceback
-        print("❌ INIT ERROR:")
-        print(traceback.format_exc())
-
-# 💾 SAVE DATA
+# 💾 Save
 def save_to_db(data):
     try:
-        print("🔥 BEFORE SAVE")
-        conn = get_db_connection()
-        print("✅ CONNECTED")
+        print("🔥 TRYING TO SAVE:", data)
 
+        conn = get_db_connection()
         cur = conn.cursor()
 
         cur.execute("""
@@ -74,28 +65,29 @@ def save_to_db(data):
         """, data)
 
         conn.commit()
+
         cur.close()
         conn.close()
 
-        print("✅ SAVED:", data)
+        print("✅ SAVED SUCCESSFULLY")
 
     except Exception as e:
         import traceback
-        print("❌ SAVE ERROR:")
+        print("❌ SAVE FAILED:")
         print(traceback.format_exc())
 
-# 🔧 FORCE INIT ROUTE
+# 🔧 Force DB init
 @app.route("/initdb")
 def force_init():
     init_db()
-    return "DB Initialized ✅"
+    return "DB Initialized"
 
-# 🏠 HOME
+# 🏠 Home
 @app.route("/")
 def home():
-    return "Bot is running"
+    return "Bot running"
 
-# 📦 VIEW ORDERS
+# 📦 View Orders
 @app.route("/orders")
 def view_orders():
     try:
@@ -108,17 +100,30 @@ def view_orders():
         cur.close()
         conn.close()
 
-        result = ""
-        for row in rows:
-            result += f"{row}\n\n"
+        if not rows:
+            return "No orders yet"
 
-        return result if result else "No orders yet"
+        output = ""
+        for r in rows:
+            output += f"""
+ID: {r[0]}
+Name: {r[1]}
+Phone: {r[2]}
+Product: {r[3]}
+Size: {r[4]}
+Address: {r[5]}
+Date: {r[6]}
+Time: {r[7]}
+Delivery: {r[8]}
+-------------------------
+"""
+        return output
 
     except Exception as e:
         import traceback
         return traceback.format_exc()
 
-# 🤖 WHATSAPP BOT
+# 🤖 Webhook
 @app.route("/webhook", methods=['POST'])
 def webhook():
     incoming_msg = request.values.get('Body', '').strip().lower()
@@ -133,63 +138,49 @@ def webhook():
 
     state = user_state[phone]
 
-    print("STATE:", state, "MSG:", incoming_msg)
+    print("MSG:", incoming_msg, "| STATE:", state)
 
-    # ❌ CANCEL
-    if incoming_msg in ["cancel", "stop", "exit"]:
+    # CANCEL
+    if incoming_msg in ["cancel", "stop"]:
         user_state[phone] = {"step": None, "product": None, "size": None}
         msg.body("Order cancelled ❌")
         return str(resp)
 
-    # 🔍 Detect product
+    # PRODUCT DETECT
     found_product = None
-    for product in products:
-        if product in incoming_msg:
-            found_product = product
+    for p in products:
+        if p in incoming_msg:
+            found_product = p
             break
 
-    # 💡 Q&A
+    # START ORDER
     if state["step"] is None and found_product:
-        p = products[found_product]
-
-        if "price" in incoming_msg:
-            msg.body(f"{found_product} price is {p['price']}")
-            return str(resp)
-
-        elif "size" in incoming_msg:
-            msg.body(f"Sizes: {', '.join(p['sizes'])}")
-            return str(resp)
-
-        elif "delivery" in incoming_msg:
-            msg.body(f"Delivery: {p['delivery']}")
-            return str(resp)
-
-        else:
-            state["product"] = found_product
-            state["step"] = "ask_size"
-            msg.body(f"Available sizes: {', '.join(p['sizes'])}")
-            return str(resp)
+        state["product"] = found_product
+        state["step"] = "size"
+        msg.body(f"{found_product.title()} available.\nSizes: {', '.join(products[found_product]['sizes'])}\nEnter size:")
+        return str(resp)
 
     # SIZE
-    if state["step"] == "ask_size":
-        if incoming_msg.upper() in products[state["product"]]["sizes"]:
-            state["size"] = incoming_msg.upper()
-            state["step"] = "ask_address"
-            msg.body("Send name and address (Name, Address)")
+    if state["step"] == "size":
+        size = incoming_msg.upper()
+
+        if size in products[state["product"]]["sizes"]:
+            state["size"] = size
+            state["step"] = "address"
+            msg.body("Send name and address")
         else:
-            msg.body("Invalid size")
+            msg.body("Invalid size. Try again.")
         return str(resp)
 
     # ADDRESS → SAVE
-    if state["step"] == "ask_address":
+    if state["step"] == "address":
         parts = incoming_msg.split(",", 1)
-
         name = parts[0].strip()
         address = parts[1].strip() if len(parts) > 1 else ""
 
         now = datetime.now()
 
-        save_to_db([
+        data = [
             name,
             phone,
             state["product"],
@@ -198,16 +189,25 @@ def webhook():
             now.strftime("%Y-%m-%d"),
             now.strftime("%H:%M:%S"),
             products[state["product"]]["delivery"]
-        ])
+        ]
 
-        msg.body("Order Confirmed ✅")
+        save_to_db(data)
+
+        msg.body(
+            f"""Order Confirmed ✅
+
+Product: {state['product']}
+Size: {state['size']}
+Delivery: {products[state['product']]['delivery']}"""
+        )
 
         user_state[phone] = {"step": None, "product": None, "size": None}
         return str(resp)
 
-    msg.body("Send product like 'black shirt'")
+    msg.body("Send product name like 'black shirt'")
     return str(resp)
 
 
 if __name__ == "__main__":
+    init_db()  # IMPORTANT
     app.run(host="0.0.0.0", port=5000)
