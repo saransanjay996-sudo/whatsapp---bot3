@@ -155,49 +155,28 @@ def webhook():
         msg.body("Order cancelled ❌")
         return str(resp)
 
-    # STEP 1 → PRODUCT
-    if "product" not in state:
-        for p in products:
-            if p in incoming_msg:
-                state["product"] = p
-                msg.body(f"{p.title()} selected.\nEnter size: {', '.join(products[p]['sizes'])}")
-                return str(resp)
-
-        msg.body("Send product name like 'black shirt'")
-        return str(resp)
-
-    # STEP 2 → SIZE
-    if "size" not in state:
-        size = incoming_msg.upper()
-
-        if size in products[state["product"]]["sizes"]:
-            state["size"] = size
-            msg.body("Send name and address (Name, Address)")
-        else:
-            msg.body("Invalid size. Try again.")
-        return str(resp)
-
-    # STEP 3 → ADDRESS → SAVE
-    if "address" not in state:
-        print("🔥 ENTERED FINAL STEP")
+    # 🔴 DIRECT ORDER DETECTION (FAILSAFE)
+    if "," in incoming_msg and len(incoming_msg) > 5:
+        print("🔥 FORCED FINAL STEP")
 
         parts = incoming_msg.split(",", 1)
         name = parts[0].strip()
-        address = parts[1].strip() if len(parts) > 1 else ""
+        address = parts[1].strip()
 
-        state["address"] = address
+        product = state.get("product", "black shirt")  # fallback
+        size = state.get("size", "M")  # fallback
 
         now = datetime.now()
 
         data = [
             name,
             phone,
-            state["product"],
-            state["size"],
+            product,
+            size,
             address,
             now.strftime("%Y-%m-%d"),
             now.strftime("%H:%M:%S"),
-            products[state["product"]]["delivery"]
+            products.get(product, {}).get("delivery", "3-5 days")
         ]
 
         save_to_db(data)
@@ -205,16 +184,29 @@ def webhook():
         msg.body(
             f"""Order Confirmed ✅
 
-Product: {state['product'].title()}
-Size: {state['size']}
-Delivery: {products[state['product']]['delivery']}"""
+Product: {product}
+Size: {size}
+Delivery: {products.get(product, {}).get("delivery", "3-5 days")}"""
         )
 
         user_state[phone] = {}
         return str(resp)
+
+    # STEP 1: PRODUCT
+    for p in products:
+        if p in incoming_msg:
+            state["product"] = p
+            msg.body(f"{p.title()} selected. Enter size: {', '.join(products[p]['sizes'])}")
+            return str(resp)
+
+    # STEP 2: SIZE
+    if incoming_msg.upper() in ["S", "M", "L", "XL"]:
+        state["size"] = incoming_msg.upper()
+        msg.body("Send name and address")
+        return str(resp)
+
     msg.body("Send product like 'black shirt' or 'white tshirt' ")
     return str(resp)
-
 
 if __name__ == "__main__":
     init_db()
