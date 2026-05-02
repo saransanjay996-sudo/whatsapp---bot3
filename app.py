@@ -135,40 +135,38 @@ def home():
 
 @app.route("/webhook", methods=['POST'])
 def webhook():
-    incoming_msg = request.values.get('Body', '').strip().lower()
+    print("🚀 WEBHOOK STARTED")
+
+    incoming_msg = request.values.get('Body')
     user_number = request.values.get('From')
+
+    print("📩 RAW:", incoming_msg)
+
+    if not incoming_msg or not user_number:
+        return "OK"
+
+    incoming_msg = incoming_msg.strip().lower()
     phone = user_number.replace("whatsapp:", "")
 
     resp = MessagingResponse()
     msg = resp.message()
 
-    if phone not in user_state:
-        user_state[phone] = {}
-
-    state = user_state[phone]
-
-    print("MSG:", incoming_msg, "STATE:", state)
-
-    # CANCEL
-    if incoming_msg in ["cancel", "stop", "exit"]:
-        user_state[phone] = {}
-        msg.body("Order cancelled ❌")
-        return str(resp)
-
-    # 🔴 DIRECT ORDER DETECTION (FAILSAFE)
-    if "," in incoming_msg and len(incoming_msg) > 5:
-        print("🔥 FORCED FINAL STEP")
+    # 💥 DIRECT ORDER FORMAT (MOST IMPORTANT)
+    # Example: Sanjay, Chennai
+    if "," in incoming_msg:
+        print("🔥 DIRECT ORDER DETECTED")
 
         parts = incoming_msg.split(",", 1)
         name = parts[0].strip()
         address = parts[1].strip()
 
-        product = state.get("product", "black shirt")  # fallback
-        size = state.get("size", "M")  # fallback
+        # fallback defaults (to avoid failure)
+        product = "black shirt"
+        size = "M"
 
         now = datetime.now()
 
-        data = [
+        save_to_db([
             name,
             phone,
             product,
@@ -176,36 +174,31 @@ def webhook():
             address,
             now.strftime("%Y-%m-%d"),
             now.strftime("%H:%M:%S"),
-            products.get(product, {}).get("delivery", "3-5 days")
-        ]
+            "3-5 days"
+        ])
 
-        save_to_db(data)
+        print("✅ SAVED DIRECT ORDER")
 
         msg.body(
             f"""Order Confirmed ✅
 
 Product: {product}
 Size: {size}
-Delivery: {products.get(product, {}).get("delivery", "3-5 days")}"""
+Delivery: 3-5 days"""
         )
 
-        user_state[phone] = {}
         return str(resp)
 
-    # STEP 1: PRODUCT
-    for p in products:
-        if p in incoming_msg:
-            state["product"] = p
-            msg.body(f"{p.title()} selected. Enter size: {', '.join(products[p]['sizes'])}")
-            return str(resp)
+    # 💥 SIMPLE FLOW (OPTIONAL)
+    if "black shirt" in incoming_msg:
+        msg.body("Black shirt available. Sizes: M, L, XL\nSend size")
+        return str(resp)
 
-    # STEP 2: SIZE
     if incoming_msg.upper() in ["S", "M", "L", "XL"]:
-        state["size"] = incoming_msg.upper()
         msg.body("Send name and address")
         return str(resp)
 
-    msg.body("Send product like 'black shirt' or 'white tshirt' ")
+    msg.body("Send 'black shirt' or 'white tshirt' ")
     return str(resp)
 
 if __name__ == "__main__":
