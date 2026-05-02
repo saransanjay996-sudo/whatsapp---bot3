@@ -133,7 +133,6 @@ Delivery: {r[8]}
 def home():
     return "Bot is running"
 
-# 🤖 webhook
 @app.route("/webhook", methods=['POST'])
 def webhook():
     incoming_msg = request.values.get('Body', '').strip().lower()
@@ -144,64 +143,49 @@ def webhook():
     msg = resp.message()
 
     if phone not in user_state:
-        user_state[phone] = {"step": None, "product": None, "size": None}
+        user_state[phone] = {}
 
     state = user_state[phone]
 
-    print("STATE:", state, "MSG:", incoming_msg)
+    print("MSG:", incoming_msg, "STATE:", state)
 
-    # ❌ CANCEL
+    # CANCEL
     if incoming_msg in ["cancel", "stop", "exit"]:
-        user_state[phone] = {"step": None, "product": None, "size": None}
+        user_state[phone] = {}
         msg.body("Order cancelled ❌")
         return str(resp)
 
-    # 🔍 detect product
-    found_product = None
-    for p in products:
-        if p in incoming_msg:
-            found_product = p
-            break
+    # STEP 1 → PRODUCT
+    if "product" not in state:
+        for p in products:
+            if p in incoming_msg:
+                state["product"] = p
+                msg.body(f"{p.title()} selected.\nEnter size: {', '.join(products[p]['sizes'])}")
+                return str(resp)
 
-    # 💡 Q&A MODE
-    if state["step"] is None and found_product:
-        p = products[found_product]
+        msg.body("Send product name like 'black shirt'")
+        return str(resp)
 
-        if "price" in incoming_msg:
-            msg.body(f"{found_product.title()} price is {p['price']}")
-            return str(resp)
-
-        elif "size" in incoming_msg:
-            msg.body(f"Sizes: {', '.join(p['sizes'])}")
-            return str(resp)
-
-        elif "delivery" in incoming_msg:
-            msg.body(f"Delivery: {p['delivery']}")
-            return str(resp)
-
-        else:
-            state["product"] = found_product
-            state["step"] = "ask_size"
-            msg.body(f"{found_product.title()} available. Sizes: {', '.join(p['sizes'])}")
-            return str(resp)
-
-    # 📏 SIZE
-    if state["step"] == "ask_size":
+    # STEP 2 → SIZE
+    if "size" not in state:
         size = incoming_msg.upper()
 
         if size in products[state["product"]]["sizes"]:
             state["size"] = size
-            state["step"] = "ask_address"
             msg.body("Send name and address (Name, Address)")
         else:
-            msg.body("Invalid size")
+            msg.body("Invalid size. Try again.")
         return str(resp)
 
-    # 📦 ADDRESS → SAVE
-    if state["step"] == "ask_address":
+    # STEP 3 → ADDRESS → SAVE
+    if "address" not in state:
+        print("🔥 ENTERED FINAL STEP")
+
         parts = incoming_msg.split(",", 1)
         name = parts[0].strip()
         address = parts[1].strip() if len(parts) > 1 else ""
+
+        state["address"] = address
 
         now = datetime.now()
 
@@ -226,10 +210,9 @@ Size: {state['size']}
 Delivery: {products[state['product']]['delivery']}"""
         )
 
-        user_state[phone] = {"step": None, "product": None, "size": None}
+        user_state[phone] = {}
         return str(resp)
-
-    msg.body("Send product like 'black shirt'")
+    msg.body("Send product like 'black shirt' or 'white tshirt' ")
     return str(resp)
 
 
