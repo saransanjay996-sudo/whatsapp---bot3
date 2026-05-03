@@ -107,23 +107,71 @@ def view_orders():
         conn.close()
 
         if not rows:
-            return "No orders yet"
+            return "<h2>No orders yet</h2>"
 
-        result = ""
+        # 🧾 HTML TABLE
+        html = """
+        <html>
+        <head>
+            <title>Orders</title>
+            <style>
+                table {
+                    border-collapse: collapse;
+                    width: 100%;
+                    font-family: Arial;
+                }
+                th, td {
+                    border: 1px solid #ddd;
+                    padding: 10px;
+                    text-align: left;
+                }
+                th {
+                    background-color: #333;
+                    color: white;
+                }
+                tr:nth-child(even) {
+                    background-color: #f2f2f2;
+                }
+            </style>
+        </head>
+        <body>
+            <h2>📦 Orders Dashboard</h2>
+            <table>
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Phone</th>
+                    <th>Product</th>
+                    <th>Size</th>
+                    <th>Address</th>
+                    <th>Date</th>
+                    <th>Time</th>
+                    <th>Delivery</th>
+                </tr>
+        """
+
         for r in rows:
-            result += f"""
-ID: {r[0]}
-Name: {r[1]}
-Phone: {r[2]}
-Product: {r[3]}
-Size: {r[4]}
-Address: {r[5]}
-Date: {r[6]}
-Time: {r[7]}
-Delivery: {r[8]}
-----------------------
-"""
-        return result
+            html += f"""
+            <tr>
+                <td>{r[0]}</td>
+                <td>{r[1]}</td>
+                <td>{r[2]}</td>
+                <td>{r[3]}</td>
+                <td>{r[4]}</td>
+                <td>{r[5]}</td>
+                <td>{r[6]}</td>
+                <td>{r[7]}</td>
+                <td>{r[8]}</td>
+            </tr>
+            """
+
+        html += """
+            </table>
+        </body>
+        </html>
+        """
+
+        return html
 
     except Exception as e:
         return str(e)
@@ -135,38 +183,40 @@ def home():
 
 @app.route("/webhook", methods=['POST'])
 def webhook():
-    print("🚀 WEBHOOK STARTED")
-
-    incoming_msg = request.values.get('Body')
+    incoming_msg = request.values.get('Body', '').strip().lower()
     user_number = request.values.get('From')
-
-    print("📩 RAW:", incoming_msg)
-
-    if not incoming_msg or not user_number:
-        return "OK"
-
-    incoming_msg = incoming_msg.strip().lower()
     phone = user_number.replace("whatsapp:", "")
 
     resp = MessagingResponse()
     msg = resp.message()
 
-    # 💥 DIRECT ORDER FORMAT (MOST IMPORTANT)
-    # Example: Sanjay, Chennai
-    if "," in incoming_msg:
-        print("🔥 DIRECT ORDER DETECTED")
+    if phone not in user_state:
+        user_state[phone] = {}
+
+    state = user_state[phone]
+
+    print("MSG:", incoming_msg, "STATE:", state)
+
+    # CANCEL
+    if incoming_msg in ["cancel", "stop", "exit"]:
+        user_state[phone] = {}
+        msg.body("Order cancelled ❌")
+        return str(resp)
+
+    # 🔴 DIRECT ORDER DETECTION (FAILSAFE)
+    if "," in incoming_msg and len(incoming_msg) > 5:
+        print("🔥 FORCED FINAL STEP")
 
         parts = incoming_msg.split(",", 1)
         name = parts[0].strip()
         address = parts[1].strip()
 
-        # fallback defaults (to avoid failure)
-        product = "black shirt"
-        size = "M"
+        product = state.get("product", "black shirt")  # fallback
+        size = state.get("size", "M")  # fallback
 
         now = datetime.now()
 
-        save_to_db([
+        data = [
             name,
             phone,
             product,
@@ -174,33 +224,37 @@ def webhook():
             address,
             now.strftime("%Y-%m-%d"),
             now.strftime("%H:%M:%S"),
-            "3-5 days"
-        ])
+            products.get(product, {}).get("delivery", "3-5 days")
+        ]
 
-        print("✅ SAVED DIRECT ORDER")
+        save_to_db(data)
 
         msg.body(
             f"""Order Confirmed ✅
 
 Product: {product}
 Size: {size}
-Delivery: 3-5 days"""
+Delivery: {products.get(product, {}).get("delivery", "3-5 days")}"""
         )
 
+        user_state[phone] = {}
         return str(resp)
 
-    # 💥 SIMPLE FLOW (OPTIONAL)
-    if "black shirt" in incoming_msg:
-        msg.body("Black shirt available. Sizes: M, L, XL\nSend size")
-        return str(resp)
+    # STEP 1: PRODUCT
+    for p in products:
+        if p in incoming_msg:
+            state["product"] = p
+            msg.body(f"{p.title()} selected. Enter size: {', '.join(products[p]['sizes'])}")
+            return str(resp)
 
+    # STEP 2: SIZE
     if incoming_msg.upper() in ["S", "M", "L", "XL"]:
+        state["size"] = incoming_msg.upper()
         msg.body("Send name and address")
         return str(resp)
 
-    msg.body("Send 'black shirt' or 'white tshirt' ")
+    msg.body("Send product like 'black shirt' or 'white tshirt'")
     return str(resp)
-
 if __name__ == "__main__":
     init_db()
     app.run(host="0.0.0.0", port=5000)
