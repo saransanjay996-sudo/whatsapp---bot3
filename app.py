@@ -257,4 +257,4 @@ Delivery: {products.get(product, {}).get("delivery", "3-5 days")}"""
     return str(resp)
 if __name__ == "__main__":
     init_db()
-    app.run(host="0.0.0.0", port=5000)
+    app.run()
