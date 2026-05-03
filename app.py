@@ -183,77 +183,111 @@ def home():
 
 @app.route("/webhook", methods=['POST'])
 def webhook():
-    incoming_msg = request.values.get('Body', '').strip().lower()
+    print("🚀 WEBHOOK STARTED")
+
+    incoming_msg = request.values.get('Body')
     user_number = request.values.get('From')
+
+    if not incoming_msg or not user_number:
+        return "OK"
+
+    incoming_msg = incoming_msg.strip().lower()
     phone = user_number.replace("whatsapp:", "")
 
     resp = MessagingResponse()
     msg = resp.message()
 
-    if phone not in user_state:
-        user_state[phone] = {}
+    print("📩 MSG:", incoming_msg)
 
-    state = user_state[phone]
+    # 🛍️ PRODUCT DATABASE
+    products = {
+        "black shirt": {
+            "price": "₹999",
+            "sizes": ["M", "L", "XL"],
+            "delivery": "3-5 days"
+        },
+        "white tshirt": {
+            "price": "₹799",
+            "sizes": ["S", "M", "L"],
+            "delivery": "2-4 days"
+        }
+    }
 
-    print("MSG:", incoming_msg, "STATE:", state)
-
-    # CANCEL
+    # ❌ CANCEL
     if incoming_msg in ["cancel", "stop", "exit"]:
-        user_state[phone] = {}
         msg.body("Order cancelled ❌")
         return str(resp)
 
-    # 🔴 DIRECT ORDER DETECTION (FAILSAFE)
-    if "," in incoming_msg and len(incoming_msg) > 5:
-        print("🔥 FORCED FINAL STEP")
+    # 💥 PRICE / INFO QUERY
+    for product in products:
+        if product in incoming_msg:
+
+            data = products[product]
+
+            if "price" in incoming_msg:
+                msg.body(f"{product.title()} price is {data['price']}")
+                return str(resp)
+
+            elif "size" in incoming_msg:
+                msg.body(f"{product.title()} sizes: {', '.join(data['sizes'])}")
+                return str(resp)
+
+            elif "delivery" in incoming_msg:
+                msg.body(f"{product.title()} delivery: {data['delivery']}")
+                return str(resp)
+
+            else:
+                msg.body(
+                    f"{product.title()} costs {data['price']}.\n"
+                    f"Sizes: {', '.join(data['sizes'])}\n"
+                    f"Type size to order."
+                )
+                return str(resp)
+
+    # 💥 SIZE STEP
+    if incoming_msg.upper() in ["S", "M", "L", "XL"]:
+        msg.body("Send your name and address (Name, Address)")
+        return str(resp)
+
+    # 💥 FINAL ORDER (SAVE)
+    if "," in incoming_msg:
+        print("🔥 ORDER DETECTED")
 
         parts = incoming_msg.split(",", 1)
         name = parts[0].strip()
         address = parts[1].strip()
 
-        product = state.get("product", "black shirt")  # fallback
-        size = state.get("size", "M")  # fallback
-
         now = datetime.now()
 
-        data = [
+        save_to_db([
             name,
             phone,
-            product,
-            size,
+            "black shirt",   # default (can upgrade later)
+            "M",
             address,
             now.strftime("%Y-%m-%d"),
             now.strftime("%H:%M:%S"),
-            products.get(product, {}).get("delivery", "3-5 days")
-        ]
+            "3-5 days"
+        ])
 
-        save_to_db(data)
+        print("✅ SAVED")
 
         msg.body(
-            f"""Order Confirmed ✅
-
-Product: {product}
-Size: {size}
-Delivery: {products.get(product, {}).get("delivery", "3-5 days")}"""
+            "Order Confirmed ✅\n"
+            "Product: Black Shirt\n"
+            "Size: M\n"
+            "Delivery: 3-5 days"
         )
-
-        user_state[phone] = {}
         return str(resp)
 
-    # STEP 1: PRODUCT
-    for p in products:
-        if p in incoming_msg:
-            state["product"] = p
-            msg.body(f"{p.title()} selected. Enter size: {', '.join(products[p]['sizes'])}")
-            return str(resp)
+    # 💡 DEFAULT
+    msg.body(
+        "Send:\n"
+        "- 'black shirt price'\n"
+        "- 'white tshirt size'\n"
+        "- or type product name to order"
+    )
 
-    # STEP 2: SIZE
-    if incoming_msg.upper() in ["S", "M", "L", "XL"]:
-        state["size"] = incoming_msg.upper()
-        msg.body("Send name and address")
-        return str(resp)
-
-    msg.body("Send product like 'black shirt' or 'white tshirt'")
     return str(resp)
 if __name__ == "__main__":
     init_db()
