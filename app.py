@@ -26,9 +26,18 @@ user_state = {}
 # 🔗 DB connection (safe)
 def get_db_connection():
     try:
-        return psycopg2.connect(os.environ.get("DATABASE_URL"), sslmode='require')
+        database_url = os.environ.get("DATABASE_URL")
+
+        print("DATABASE_URL EXISTS:", bool(database_url))
+
+        conn = psycopg2.connect(database_url)
+
+        print("✅ DB CONNECTED")
+
+        return conn
+
     except Exception as e:
-        print("❌ DB CONNECT ERROR:", e)
+        print("❌ DB ERROR:", e)
         return None
 
 # 🧱 Init DB (safe)
