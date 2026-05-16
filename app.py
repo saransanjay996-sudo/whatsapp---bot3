@@ -24,13 +24,13 @@ products = {
 user_state = {}
 
 # 🔗 DB connection (safe)
+
+
 def get_db_connection():
     try:
-        database_url = os.environ.get("DATABASE_URL")
-
-        print("DATABASE_URL EXISTS:", bool(database_url))
-
-        conn = psycopg2.connect(database_url)
+        conn = psycopg2.connect(
+            os.environ.get("DATABASE_URL")
+        )
 
         print("✅ DB CONNECTED")
 
